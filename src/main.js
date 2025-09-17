@@ -55,7 +55,7 @@ const createWindow = () => {
 
 function createTray() {
   tray = new Tray(iconPath); // 图标路径
-  tray.setToolTip("我的 Electron 应用");
+  tray.setToolTip("MES打印客户端");
 
   const contextMenu = Menu.buildFromTemplate([
     {

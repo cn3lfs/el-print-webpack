@@ -1,7 +1,6 @@
 const puppeteer = require("puppeteer-core");
-const path = require("path");
 const fs = require("fs/promises");
-const logger = require("electron-log/main");
+const logger = require("./logger");
 const { createTempFilePath } = require("./fileDownloader");
 
 const basePath =

@@ -1,37 +1,23 @@
+import { exec } from "child_process";
 import os from "os";
 import path from "path";
-import fs from "fs";
-import { exec } from "child_process";
 import {
-  print as winPrint,
   getPrinters as getWinPrinters,
+  print as winPrint,
 } from "pdf-to-printer";
 import {
-  print as unixPrint,
-  getPrinters as getUnixPrinters,
   getDefaultPrinter as getUnixDefault,
+  getPrinters as getUnixPrinters,
   isPrintComplete,
+  print as unixPrint,
 } from "unix-print";
+import logger from "./logger";
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 function ensureAbsolute(p) {
   return path.isAbsolute(p) ? p : path.resolve(p);
-}
-function nowISO() {
-  return new Date().toISOString();
-}
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-}
-function appendLogLine(line, logDir = "./print_logs") {
-  ensureDir(logDir);
-  const file = path.join(
-    logDir,
-    `${new Date().toISOString().slice(0, 10)}.log`
-  );
-  fs.appendFileSync(file, `[${nowISO()}] ${line}\n`);
 }
 function isPosix() {
   return ["linux", "darwin", "freebsd"].includes(os.platform());
@@ -187,7 +173,7 @@ export async function printSinglePDF(
     try {
       if (platform === "win32") {
         await winPrint(absPath, mapWindowsOptions(options));
-        appendLogLine(
+        logger.info(
           `SUCCESS: ${absPath} -> ${options.printer || "(default)"} [Windows]`
         );
         return { success: true };
@@ -202,7 +188,7 @@ export async function printSinglePDF(
             await sleep(1000);
           }
         }
-        appendLogLine(
+        logger.info(
           `SUCCESS: ${absPath} -> ${options.printer || "(default)"} [POSIX] jobId=${jobId}`
         );
         return { success: true, jobId };
@@ -210,7 +196,7 @@ export async function printSinglePDF(
         throw new Error("Unsupported OS");
       }
     } catch (err) {
-      appendLogLine(
+      logger.info(
         `FAIL [${attempt}/${retries + 1}]: ${absPath} -> ${options.printer || "(default)"} | ${err.message}`
       );
       if (attempt <= retries) await sleep(waitMs);
@@ -233,7 +219,7 @@ export async function printPDFs(files, options = {}) {
     const res = await printSinglePDF(
       file,
       options,
-      options.retries || 3,
+      options.retries || 1,
       options.retryDelay || 3000
     );
     completed++;

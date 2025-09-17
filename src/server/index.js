@@ -2,7 +2,7 @@ const os = require("os");
 const fs = require("fs");
 const path = require("path");
 const { exec } = require("child_process");
-const logger = require("electron-log/main");
+const logger = require("./utils/logger");
 const { printSinglePDF, listPrinters } = require("./utils/printManager");
 const {
   downloadFile,
