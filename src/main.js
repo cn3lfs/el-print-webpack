@@ -44,7 +44,9 @@ const createWindow = () => {
   mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
 
   // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  if (process.env.NODE_ENV === "development") {
+    mainWindow.webContents.openDevTools();
+  }
 
   // 👇 拦截关闭事件，隐藏窗口而不是退出
   mainWindow.on("close", (event) => {

@@ -33,18 +33,6 @@ function getDefaultChromiumExecPath() {
 }
 
 /**
- * 生成唯一的临时文件名
- * @param {string} prefix - 文件名前缀
- * @param {string} extension - 文件扩展名
- * @returns {string} 唯一的临时文件名
- */
-function generateUniqueTempFileName(prefix = "pdf", extension = ".pdf") {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 8);
-  return `${prefix}_${timestamp}_${random}${extension}`;
-}
-
-/**
  * 将 HTML 内容转换为 PDF
  * @param {string} htmlContent - HTML 内容
  * @param {object} options - 配置选项
@@ -53,7 +41,7 @@ function generateUniqueTempFileName(prefix = "pdf", extension = ".pdf") {
  * @param {object} options.pdfOptions - PDF 生成选项
  * @returns {Promise<string>} 生成的 PDF 文件路径
  */
-async function html2pdf(htmlContent, options = {}) {
+export async function html2pdf(htmlContent, options = {}) {
   const {
     executablePath = getDefaultChromiumExecPath(),
     paperFormat = "A4",

@@ -5,7 +5,7 @@ module.exports = {
   packagerConfig: {
     asar: true,
     prune: false,
-    extraResource: ["tmp", "src/static"],
+    extraResource: ["src/static"],
   },
   rebuildConfig: {},
   makers: [

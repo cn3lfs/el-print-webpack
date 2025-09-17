@@ -1,7 +1,17 @@
 import * as React from "react";
 import * as printUtils from "./utils/print";
+import { message } from "antd";
 
 function HelloWorld() {
+  const [messageApi, contextHolder] = message.useMessage();
+
+  const showSuccessTip = () => {
+    messageApi.open({
+      type: "success",
+      content: "正在打印中",
+    });
+  };
+
   const htmlContent = `
     <html>
       <head>
@@ -15,13 +25,49 @@ function HelloWorld() {
   `;
 
   function printFrag() {
+    showSuccessTip();
     const jsx = `<h1 className="text-center text-red-600">Hello, I'm {data.name}</h1>`;
     const data = { name: "KangKang" };
     printUtils.printJsx(jsx, data);
   }
 
+  function printHtml() {
+    showSuccessTip();
+    printUtils.printHTML(htmlContent);
+  }
+
+  function printPdf() {
+    showSuccessTip();
+    printUtils.printPdf(
+      "E:/reactprj/el-print-webpack/src/static/demo/demo.pdf"
+    );
+  }
+
+  function printWord() {
+    showSuccessTip();
+    printUtils.printWord(
+      "E:/reactprj/el-print-webpack/src/static/demo/demo.docx"
+    );
+  }
+
+  function printExcel() {
+    showSuccessTip();
+    printUtils.printExcel(
+      "E:/reactprj/el-print-webpack/src/static/demo/demo.xlsx"
+    );
+  }
+
+  function printPpt() {
+    showSuccessTip();
+    printUtils.printPPT(
+      "E:/reactprj/el-print-webpack/src/static/demo/demo.pptx"
+    );
+  }
+
   return (
     <div className="h-screen  h-full relative bg-gray-100">
+      {contextHolder}
+
       <div className="relative p-10 bg-white shadow-lg">
         {/* 应用默认配置信息 */}
         <div className="mb-8 p-4 bg-gray-50 rounded-lg border">
@@ -66,51 +112,35 @@ function HelloWorld() {
 
           <button
             className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition duration-300"
-            onClick={() => printUtils.printHTML(htmlContent)}
+            onClick={printHtml}
           >
             Print HTML
           </button>
 
           <button
             className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-300"
-            onClick={() =>
-              printUtils.printPdf(
-                "E:/reactprj/el-print-webpack/src/static/demo/demo.pdf"
-              )
-            }
+            onClick={printPdf}
           >
             Print PDF
           </button>
 
           <button
             className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded transition duration-300"
-            onClick={() =>
-              printUtils.printWord(
-                "E:/reactprj/el-print-webpack/src/static/demo/demo.docx"
-              )
-            }
+            onClick={printWord}
           >
             Print Word
           </button>
 
           <button
             className="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition duration-300"
-            onClick={() =>
-              printUtils.printExcel(
-                "E:/reactprj/el-print-webpack/src/static/demo/demo.xlsx"
-              )
-            }
+            onClick={printExcel}
           >
             Print Excel
           </button>
 
           <button
             className="bg-pink-500 hover:bg-pink-700 text-white font-bold py-2 px-4 rounded transition duration-300"
-            onClick={() =>
-              printUtils.printPPT(
-                "E:/reactprj/el-print-webpack/src/static/demo/demo.pptx"
-              )
-            }
+            onClick={printPpt}
           >
             Print PPT
           </button>

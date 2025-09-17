@@ -9,7 +9,7 @@ const {
   isUrl,
   createTempFilePath,
 } = require("./utils/fileDownloader");
-const html2pdf = require("./utils/html2pdf");
+const { html2pdf } = require("./utils/html2pdf");
 
 const fastify = require("fastify")({
   logger: true,
