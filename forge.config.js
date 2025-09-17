@@ -1,12 +1,11 @@
 const { FusesPlugin } = require("@electron-forge/plugin-fuses");
 const { FuseV1Options, FuseVersion } = require("@electron/fuses");
-const fs = require('fs');
 
 module.exports = {
   packagerConfig: {
     asar: true,
     prune: false,
-    extraResource: ['tmp', 'src/static'],
+    extraResource: ["tmp", "src/static"],
   },
   rebuildConfig: {},
   makers: [
@@ -36,6 +35,8 @@ module.exports = {
       name: "@electron-forge/plugin-webpack",
       config: {
         mainConfig: "./webpack.main.config.js",
+        devContentSecurityPolicy:
+          "connect-src 'self' https://api.myapp.com 'unsafe-eval'",
         renderer: {
           config: "./webpack.renderer.config.js",
           entryPoints: [

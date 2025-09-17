@@ -2,10 +2,10 @@ const path = require("node:path");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
 // const nodeExternals = require('webpack-node-externals');
 
-const assets = [ 'static' ]; // asset directories
+const assets = ["static"]; // asset directories
 const copyPlugins = assets.map((asset) => {
   return new CopyWebpackPlugin({
-    patterns: [{ from: path.resolve(__dirname, 'src', asset), to: asset }],
+    patterns: [{ from: path.resolve(__dirname, "src", asset), to: asset }],
   });
 });
 

@@ -1,5 +1,4 @@
 import * as React from "react";
-
 import * as printUtils from "./utils/print";
 
 function HelloWorld() {
@@ -22,63 +21,75 @@ function HelloWorld() {
   }
 
   return (
-    <div>
-      <h1>Hello World</h1>
+    <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
+      <div className="relative py-3 sm:max-w-xl sm:mx-auto">
+        <div className="relative px-4 py-10 bg-white shadow-lg sm:rounded-3xl sm:p-20">
+          <div className="max-w-md mx-auto">
+            <h1 className="text-3xl font-bold text-gray-900 mb-8">
+              客户端打印测试:
+            </h1>
 
-      <div>
-        <button
-          onClick={() => {
-            printFrag();
-          }}
-        >
-          打印React片段
-        </button>
-        <button
-          onClick={() => {
-            printUtils.printHTML(htmlContent);
-          }}
-        >
-          打印HTML
-        </button>
-        <button
-          onClick={() => {
-            printUtils.printPdf(
-              "E:/reactprj/el-print-webpack/src/static/demo/demo.pdf"
-            );
-          }}
-        >
-          打印Pdf
-        </button>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <button
+                className="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-300"
+                onClick={printFrag}
+              >
+                Print React Fragment
+              </button>
 
-        <button
-          onClick={() => {
-            printUtils.printWord(
-              "E:/reactprj/el-print-webpack/src/static/demo/demo.docx"
-            );
-          }}
-        >
-          打印Word
-        </button>
+              <button
+                className="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition duration-300"
+                onClick={() => printUtils.printHTML(htmlContent)}
+              >
+                Print HTML
+              </button>
 
-        <button
-          onClick={() => {
-            printUtils.printExcel(
-              "E:/reactprj/el-print-webpack/src/static/demo/demo.xlsx"
-            );
-          }}
-        >
-          打印Excel
-        </button>
+              <button
+                className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-300"
+                onClick={() =>
+                  printUtils.printPdf(
+                    "E:/reactprj/el-print-webpack/src/static/demo/demo.pdf"
+                  )
+                }
+              >
+                Print PDF
+              </button>
 
-        <button
-          onClick={() => {
-            printUtils.printPPT(
-              "E:/reactprj/el-print-webpack/src/static/demo/demo.pptx"
-            );
-          }}
-        >
-          打印PPT
-        </button>
+              <button
+                className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded transition duration-300"
+                onClick={() =>
+                  printUtils.printWord(
+                    "E:/reactprj/el-print-webpack/src/static/demo/demo.docx"
+                  )
+                }
+              >
+                Print Word
+              </button>
+
+              <button
+                className="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition duration-300"
+                onClick={() =>
+                  printUtils.printExcel(
+                    "E:/reactprj/el-print-webpack/src/static/demo/demo.xlsx"
+                  )
+                }
+              >
+                Print Excel
+              </button>
+
+              <button
+                className="bg-pink-500 hover:bg-pink-700 text-white font-bold py-2 px-4 rounded transition duration-300"
+                onClick={() =>
+                  printUtils.printPPT(
+                    "E:/reactprj/el-print-webpack/src/static/demo/demo.pptx"
+                  )
+                }
+              >
+                Print PPT
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

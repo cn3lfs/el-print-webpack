@@ -1,16 +1,40 @@
-const { app, BrowserWindow, ipcMain  } = require("electron");
-const { printHTML, printPdf, printWord, printExcel, printPPT, printJsx } = require("./server");
+const { app, BrowserWindow, ipcMain, Tray, Menu } = require("electron");
+const {
+  default: installExtension,
+  REACT_DEVELOPER_TOOLS,
+} = require("electron-devtools-installer");
+const path = require("path");
+
+const {
+  printHTML,
+  printPdf,
+  printWord,
+  printExcel,
+  printPPT,
+  printJsx,
+  startServer,
+} = require("./server");
+
+app.commandLine.appendSwitch("ignore-certificate-errors");
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require("electron-squirrel-startup")) {
   app.quit();
 }
 
+const basePath =
+  process.env.NODE_ENV === "development" ? __dirname : process.resourcesPath;
+const iconPath = path.join(basePath, "./static/tray-icon.png");
+
+let mainWindow = null;
+let tray = null;
+
 const createWindow = () => {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    icon: iconPath,
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
     },
@@ -21,34 +45,67 @@ const createWindow = () => {
 
   // Open the DevTools.
   mainWindow.webContents.openDevTools();
+
+  // 👇 拦截关闭事件，隐藏窗口而不是退出
+  mainWindow.on("close", (event) => {
+    event.preventDefault();
+    mainWindow?.hide(); // 或使用 minimize()
+  });
 };
+
+function createTray() {
+  tray = new Tray(iconPath); // 图标路径
+  tray.setToolTip("我的 Electron 应用");
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "显示主窗口",
+      click: () => {
+        mainWindow?.show();
+      },
+    },
+    {
+      label: "退出",
+      click: () => {
+        tray?.destroy();
+        mainWindow?.destroy();
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(contextMenu);
+
+  tray.on("click", () => {
+    mainWindow?.isVisible() ? mainWindow.hide() : mainWindow?.show();
+  });
+}
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(async () => {
-  if (process.env.NODE_ENV === "development") {
-    const {
-      default: installExtension,
-      REACT_DEVELOPER_TOOLS,
-    } = require("electron-devtools-assembler");
+  installExtension(REACT_DEVELOPER_TOOLS)
+    .then((ext) => {
+      console.log(`Added Extension:  ${ext.name}`);
+      console.log(
+        `Tips: Please use ctrl+r to reload the page and enable react devtools`
+      );
+    })
+    .catch((err) => console.log("An error occurred: ", err));
 
-    await installExtension(REACT_DEVELOPER_TOOLS, {
-      loadExtesionOptions: {
-        allowFileAccess: true,
-      },
-    });
-  }
-
+  createWindow();
+  createTray();
+  startServer();
 
   ipcMain.handle("print", (event, f) => {
     // print(f)
   });
   ipcMain.handle("printJsx", (event, jsx, data) => {
-    printJsx(jsx, data)
+    printJsx(jsx, data);
   });
   ipcMain.handle("printHTML", (event, f) => {
-    printHTML(f)
+    printHTML(f);
   });
   ipcMain.handle("printPdf", (event, f) => {
     printPdf(f);
@@ -63,13 +120,13 @@ app.whenReady().then(async () => {
     printPPT(f);
   });
 
-  createWindow();
-
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+    } else {
+      mainWindow?.show();
     }
   });
 });
@@ -79,7 +136,8 @@ app.whenReady().then(async () => {
 // explicitly with Cmd + Q.
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    app.quit();
+    // tray?.destroy();
+    // app.quit();
   }
 });
 

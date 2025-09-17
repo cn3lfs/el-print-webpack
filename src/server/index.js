@@ -1,51 +1,64 @@
-const http = require("node:http");
 const os = require("os");
 const fs = require("fs");
 const path = require("path");
 const { exec } = require("child_process");
 const logger = require("electron-log/main");
-
-const pdfPrinter = require("pdf-to-printer");
-
+const { printSinglePDF, listPrinters } = require("./utils/printManager");
+const {
+  downloadFile,
+  isUrl,
+  createTempFilePath,
+} = require("./utils/fileDownloader");
 const html2pdf = require("./utils/html2pdf");
 
-const basePath =
-  process.env.NODE_ENV === "development" ? __dirname : process.resourcesPath;
-
-const demoPdf = path.resolve(basePath, "./static/demo/demo.pdf");
-const demoWord = path.resolve(basePath, "./static/demo/demo.docx");
-const demoExcel = path.resolve(basePath, "./static/demo/demo.xlsx");
-const demoPPT = path.resolve(basePath, "./static/demo/demo.pptx");
-
-const sumatraPdfPath = path.resolve(
-  basePath,
-  "./static/lib/SumatraPDF-3.4.6-32.exe"
-);
+const fastify = require("fastify")({
+  logger: true,
+  // 禁用请求日志，因为我们使用electron-log
+  disableRequestLogging: true,
+});
 
 export async function printHTML(htmlContent) {
-  await html2pdf(htmlContent);
-  printPdf(path.resolve(basePath, "./tmp/output.pdf"));
+  const pdfPath = await html2pdf(htmlContent);
+  return await printPdf(pdfPath);
 }
 
-export function printPdf(f) {
-  logger.info(sumatraPdfPath);
-  logger.info(f);
-
-  try {
-    pdfPrinter
-      .print(f, {
-        sumatraPdfPath: sumatraPdfPath,
-      })
-      .then((res) => {
-        logger.info("print success");
-      })
-      .catch((err) => {
-        logger.error("print failed");
-      });
-  } catch (err) {
-    logger.error(err);
+/**
+ * 处理文件路径，支持本地路径和远程URL
+ * @param {string} filePath - 文件路径或URL
+ * @param {string} fileType - 文件类型（用于生成临时文件名）
+ * @returns {Promise<string>} 本地文件路径
+ */
+async function resolveFilePath(filePath, fileType = "") {
+  if (isUrl(filePath)) {
+    // 如果是URL，先下载到本地
+    const filename = `temp_${fileType}_${Date.now()}${path.extname(filePath) || ".pdf"}`;
+    const localPath = await downloadFile(filePath, filename);
+    logger.info(`Downloaded remote file: ${filePath} -> ${localPath}`);
+    return localPath;
+  } else {
+    // 本地路径，确保是绝对路径
+    return path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
   }
 }
+
+export async function printPdf(filePath) {
+  try {
+    const resolvedPath = await resolveFilePath(filePath, "pdf");
+    logger.info(`Printing PDF: ${resolvedPath}`);
+
+    const result = await printSinglePDF(resolvedPath, { printer: undefined });
+    if (result.success) {
+      logger.info("PDF print success");
+    } else {
+      logger.error("PDF print failed:", result.error);
+    }
+    return result;
+  } catch (error) {
+    logger.error("PDF print error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
 /* 
 Word, Excel, and PowerPoint
 For Microsoft Office files, you can use the command-line switches provided by Office applications:
@@ -87,37 +100,66 @@ function getOfficePath() {
 const OFFICE_DIR = getOfficePath();
 
 function execCmd(cmdStr) {
-  logger.info(cmdStr);
+  logger.info(`Executing: ${cmdStr}`);
 
-  exec(cmdStr, (err, stdout, stderr) => {
-    if (err) {
-      logger.error(`执行错误: ${err}`);
-      return;
-    }
+  return new Promise((resolve, reject) => {
+    exec(cmdStr, (err, stdout, stderr) => {
+      if (err) {
+        logger.error(`执行错误: ${err}`);
+        reject(err);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
   });
 }
 
-export function printWord(f) {
-  const exePath = path.resolve(OFFICE_DIR, "WINWORD.EXE");
-  const cmdStr = `"${exePath}" /q /n /mFilePrintDefault /mFileCloseOrExit "${f}"`;
+export async function printWord(filePath) {
+  try {
+    const resolvedPath = await resolveFilePath(filePath, "word");
+    const exePath = path.resolve(OFFICE_DIR, "WINWORD.EXE");
+    const cmdStr = `"${exePath}" /q /n /mFilePrintDefault /mFileCloseOrExit "${resolvedPath}"`;
 
-  execCmd(cmdStr);
+    await execCmd(cmdStr);
+    logger.info("Word print job completed");
+    return { success: true };
+  } catch (error) {
+    logger.error("Word print error:", error);
+    return { success: false, error: error.message };
+  }
 }
 
-export function printExcel(f) {
-  const exePath = path.resolve(OFFICE_DIR, "EXCEL.EXE");
-  const cmdStr = `"${exePath}" /q /e /mFilePrintDefault /mFileCloseOrExit "${f}"`;
+export async function printExcel(filePath) {
+  try {
+    const resolvedPath = await resolveFilePath(filePath, "excel");
+    const exePath = path.resolve(OFFICE_DIR, "EXCEL.EXE");
+    const cmdStr = `"${exePath}" /q /e /mFilePrintDefault /mFileCloseOrExit "${resolvedPath}"`;
 
-  execCmd(cmdStr);
+    await execCmd(cmdStr);
+    logger.info("Excel print job completed");
+    return { success: true };
+  } catch (error) {
+    logger.error("Excel print error:", error);
+    return { success: false, error: error.message };
+  }
 }
-export function printPPT(f) {
-  const exePath = path.resolve(OFFICE_DIR, "POWERPNT.EXE");
-  const cmdStr = `"${exePath}" /P "${f}"`;
 
-  execCmd(cmdStr);
+export async function printPPT(filePath) {
+  try {
+    const resolvedPath = await resolveFilePath(filePath, "ppt");
+    const exePath = path.resolve(OFFICE_DIR, "POWERPNT.EXE");
+    const cmdStr = `"${exePath}" /P "${resolvedPath}"`;
+
+    await execCmd(cmdStr);
+    logger.info("PowerPoint print job completed");
+    return { success: true };
+  } catch (error) {
+    logger.error("PowerPoint print error:", error);
+    return { success: false, error: error.message };
+  }
 }
 
-export function printJsx(jsx, initialData) {
+export async function printJsx(jsx, initialData) {
   const html = `
   <html lang="en" version="1.0.0">
 <head>
@@ -138,7 +180,7 @@ export function printJsx(jsx, initialData) {
   <link
     rel="stylesheet"
     href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css"
-    integrity="sha512-NhSC1YmyruXifcj/KFRWoC561YpHpc5Jtzgvbuzx5VozKpWvQ+4nXhPdFgmx8xqexRcpAglTj9sIBWINXa8x5w=="
+    integrity="sha512-NhSC1YmyruXifcj/KFRWoC561YpHpc5Jtzgvbuzx5VozKpWvQ4nXhPdFgmx8xqexRcpAglTj9sIBWINXa8x5w=="
     crossorigin="anonymous"
     referrerpolicy="no-referrer"
   />
@@ -168,22 +210,211 @@ export function printJsx(jsx, initialData) {
 </html>
   `;
 
-  printHTML(html);
+  return await printHTML(html);
 }
 
-export function startServer() {
-  // Create a local server to receive data from
-  const server = http.createServer();
-
-  // Listen to the request event
-  server.on("request", (request, res) => {
-    const info = pdfPrinter.getPrinters();
-
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(info));
-
-    // handlePrint();
+export async function startServer() {
+  // 注册CORS插件
+  await fastify.register(require("@fastify/cors"), {
+    origin: true, // 允许所有来源
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type"],
   });
 
-  server.listen(8000);
+  // 注册multipart插件用于文件上传
+  await fastify.register(require("@fastify/multipart"), {
+    limits: {
+      fileSize: 50 * 1024 * 1024, // 50MB
+    },
+  });
+
+  // 获取打印机列表
+  fastify.get("/printers", async (request, reply) => {
+    try {
+      const info = await listPrinters();
+      return { success: true, data: info };
+    } catch (error) {
+      logger.error("Error listing printers:", error);
+      reply.code(500);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 打印HTML内容
+  fastify.post("/print/html", async (request, reply) => {
+    const { htmlContent } = request.body || {};
+
+    if (!htmlContent) {
+      reply.code(400);
+      return { success: false, error: "htmlContent is required" };
+    }
+
+    try {
+      await printHTML(htmlContent);
+      return { success: true, message: "HTML print job submitted" };
+    } catch (error) {
+      logger.error("Error printing HTML:", error);
+      reply.code(500);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 打印PDF文件（支持本地路径和远程URL）
+  fastify.post("/print/pdf", async (request, reply) => {
+    const { filePath } = request.body || {};
+
+    if (!filePath) {
+      reply.code(400);
+      return { success: false, error: "filePath is required" };
+    }
+
+    try {
+      const result = await printPdf(filePath);
+      if (result.success) {
+        return { success: true, message: "PDF print job submitted" };
+      } else {
+        reply.code(500);
+        return { success: false, error: result.error };
+      }
+    } catch (error) {
+      logger.error("Error printing PDF:", error);
+      reply.code(500);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 打印PDF文件流
+  fastify.post("/print/pdf-stream", async (request, reply) => {
+    try {
+      const data = await request.file();
+
+      if (!data) {
+        reply.code(400);
+        return { success: false, error: "No file uploaded" };
+      }
+
+      // 使用 createTempFilePath 创建临时文件路径
+      const tempFilePath = createTempFilePath();
+
+      // 将上传的文件保存到临时路径
+      const buffer = await data.toBuffer();
+      fs.writeFileSync(tempFilePath, buffer);
+
+      // 使用现有的打印功能
+      const result = await printPdf(tempFilePath);
+
+      if (result.success) {
+        return { success: true, message: "PDF stream print job submitted" };
+      } else {
+        reply.code(500);
+        return { success: false, error: result.error };
+      }
+    } catch (error) {
+      logger.error("Error printing PDF stream:", error);
+      reply.code(500);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 打印Word文件（支持本地路径和远程URL）
+  fastify.post("/print/word", async (request, reply) => {
+    const { filePath } = request.body || {};
+
+    if (!filePath) {
+      reply.code(400);
+      return { success: false, error: "filePath is required" };
+    }
+
+    try {
+      const result = await printWord(filePath);
+      if (result.success) {
+        return { success: true, message: "Word print job submitted" };
+      } else {
+        reply.code(500);
+        return { success: false, error: result.error };
+      }
+    } catch (error) {
+      logger.error("Error printing Word:", error);
+      reply.code(500);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 打印Excel文件（支持本地路径和远程URL）
+  fastify.post("/print/excel", async (request, reply) => {
+    const { filePath } = request.body || {};
+
+    if (!filePath) {
+      reply.code(400);
+      return { success: false, error: "filePath is required" };
+    }
+
+    try {
+      const result = await printExcel(filePath);
+      if (result.success) {
+        return { success: true, message: "Excel print job submitted" };
+      } else {
+        reply.code(500);
+        return { success: false, error: result.error };
+      }
+    } catch (error) {
+      logger.error("Error printing Excel:", error);
+      reply.code(500);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 打印PowerPoint文件（支持本地路径和远程URL）
+  fastify.post("/print/ppt", async (request, reply) => {
+    const { filePath } = request.body || {};
+
+    if (!filePath) {
+      reply.code(400);
+      return { success: false, error: "filePath is required" };
+    }
+
+    try {
+      const result = await printPPT(filePath);
+      if (result.success) {
+        return { success: true, message: "PowerPoint print job submitted" };
+      } else {
+        reply.code(500);
+        return { success: false, error: result.error };
+      }
+    } catch (error) {
+      logger.error("Error printing PowerPoint:", error);
+      reply.code(500);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 打印JSX内容
+  fastify.post("/print/jsx", async (request, reply) => {
+    const { jsx, initialData } = request.body || {};
+
+    if (!jsx) {
+      reply.code(400);
+      return { success: false, error: "jsx is required" };
+    }
+
+    try {
+      const result = await printJsx(jsx, initialData || {});
+      return { success: true, message: "JSX print job submitted" };
+    } catch (error) {
+      logger.error("Error printing JSX:", error);
+      reply.code(500);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // 启动服务器
+  try {
+    await fastify.listen({ port: 8000, host: "0.0.0.0" });
+    logger.info("Fastify server running on port 8000");
+  } catch (err) {
+    logger.error("Error starting server:", err);
+    process.exit(1);
+  }
+
+  return fastify;
 }
