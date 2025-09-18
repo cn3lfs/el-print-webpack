@@ -1,0 +1,22 @@
+{
+  "chromium": {
+    "executablePath": "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe"
+  },
+  "office": {
+    "word": {
+      "win32": "C:/Program Files/Microsoft Office/root/Office16/WINWORD.EXE",
+      "darwin": "/Applications/Microsoft Word.app",
+      "linux": "/usr/lib/libreoffice/program"
+    },
+    "excel": {
+      "win32": "C:/Program Files/Microsoft Office/root/Office16/EXCEL.EXE",
+      "darwin": "/Applications/Microsoft Excel.app",
+      "linux": "/usr/lib/libreoffice/program"
+    },
+    "ppt": {
+      "win32": "C:/Program Files/Microsoft Office/root/Office16/POWERPNT.EXE",
+      "darwin": "/Applications/Microsoft PowerPoint.app",
+      "linux": "/usr/lib/libreoffice/program"
+    }
+  }
+}

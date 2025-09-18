@@ -2,15 +2,27 @@ const puppeteer = require("puppeteer-core");
 const fs = require("fs/promises");
 const logger = require("./logger");
 const { createTempFilePath } = require("./fileDownloader");
-
-const basePath =
-  process.env.NODE_ENV === "development" ? __dirname : process.resourcesPath;
+const { getConfigValue } = require("../config");
 
 /**
  * 获取默认的 Chrome 可执行文件路径
  * @returns {string} Chrome 可执行文件路径
  */
-function getDefaultChromiumExecPath() {
+export function resolveChromiumExecutablePath() {
+  const configuredPath = getConfigValue("chromium.executablePath");
+
+  if (configuredPath && typeof configuredPath === "string") {
+    try {
+      require("fs").accessSync(configuredPath);
+      return configuredPath;
+    } catch (error) {
+      logger.warn(
+        `Configured Chromium executable not accessible at ${configuredPath}:`,
+        error
+      );
+    }
+  }
+
   // 尝试常见的 Chrome 安装路径
   const possiblePaths = [
     "C:/Program Files/Google/Chrome/Application/chrome.exe",
@@ -28,22 +40,22 @@ function getDefaultChromiumExecPath() {
     }
   }
 
-  // 如果都没有找到，使用 Puppeteer 自带的 Chromium
+  // 如果仍然没有找到则使用 Puppeteer 自带的 Chromium
   return puppeteer.executablePath().replace("app.asar", "app.asar.unpacked");
 }
 
 /**
  * 将 HTML 内容转换为 PDF
  * @param {string} htmlContent - HTML 内容
- * @param {object} options - 配置选项
+ * @param {object} options - 选项配置
  * @param {string} options.executablePath - Chrome 可执行文件路径
  * @param {string} options.paperFormat - 纸张格式 (A4, A3, Letter, Legal 等)
- * @param {object} options.pdfOptions - PDF 生成选项
+ * @param {object} options.pdfOptions - PDF 额外选项
  * @returns {Promise<string>} 生成的 PDF 文件路径
  */
 export async function html2pdf(htmlContent, options = {}) {
   const {
-    executablePath = getDefaultChromiumExecPath(),
+    executablePath = resolveChromiumExecutablePath(),
     paperFormat = "A4",
     pdfOptions = {},
     ...launchOptions
@@ -106,7 +118,7 @@ export async function html2pdf(htmlContent, options = {}) {
   } catch (error) {
     logger.error("Error generating PDF:", error);
 
-    // 如果生成失败，清理临时文件
+    // 如果生成失败，删除临时文件
     if (tempFilePath) {
       try {
         await fs.unlink(tempFilePath);

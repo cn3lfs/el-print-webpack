@@ -3,13 +3,16 @@ const fs = require("fs");
 const path = require("path");
 const { exec } = require("child_process");
 const logger = require("./utils/logger");
+const logTransport = logger.transports?.file;
+const logFile = logTransport?.getFile?.();
+const { getConfigValue, getConfigPath } = require("./config");
 const { printSinglePDF, listPrinters } = require("./utils/printManager");
 const {
   downloadFile,
   isUrl,
   createTempFilePath,
 } = require("./utils/fileDownloader");
-const { html2pdf } = require("./utils/html2pdf");
+const { html2pdf, resolveChromiumExecutablePath } = require("./utils/html2pdf");
 
 const fastify = require("fastify")({
   logger: true,
@@ -73,31 +76,225 @@ PowerPoint
 "C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE" /P "C:\path\to\file.pptx"
 */
 
-function checkOfficePath(officePath) {
-  return fs.existsSync(officePath);
-}
+const OFFICE_EXECUTABLE_NAMES = {
+  word: {
+    win32: "WINWORD.EXE",
+    darwin: "Microsoft Word",
+    linux: "soffice",
+  },
+  excel: {
+    win32: "EXCEL.EXE",
+    darwin: "Microsoft Excel",
+    linux: "soffice",
+  },
+  ppt: {
+    win32: "POWERPNT.EXE",
+    darwin: "Microsoft PowerPoint",
+    linux: "soffice",
+  },
+};
 
-function getOfficePath() {
-  let officePath;
+function getDefaultOfficeCandidates(appName, platform) {
+  const exeName = OFFICE_EXECUTABLE_NAMES[appName]?.[platform];
 
-  if (os.platform() === "win32") {
-    officePath = "C:/Program Files/Microsoft Office/root/Office16/";
-    if (!checkOfficePath(officePath)) {
-      officePath = "C:/Program Files (x86)/Microsoft Office/root/Office16/";
-    }
-  } else if (os.platform() === "darwin") {
-    officePath = "/Applications/Microsoft Word.app";
-    if (!checkOfficePath(officePath)) {
-      officePath = "/Applications/Microsoft Excel.app";
-    }
-  } else if (os.platform() === "linux") {
-    officePath = "/usr/local/Microsoft Office";
+  if (platform === "win32" && exeName) {
+    return [
+      path.join("C:/Program Files/Microsoft Office/root/Office16", exeName),
+      path.join(
+        "C:/Program Files (x86)/Microsoft Office/root/Office16",
+        exeName
+      ),
+    ];
   }
 
-  return officePath;
+  if (platform === "darwin") {
+    const bundleMap = {
+      word: "/Applications/Microsoft Word.app",
+      excel: "/Applications/Microsoft Excel.app",
+      ppt: "/Applications/Microsoft PowerPoint.app",
+    };
+    const bundlePath = bundleMap[appName];
+    if (!bundlePath) {
+      return [];
+    }
+    if (!exeName) {
+      return [bundlePath];
+    }
+    return [bundlePath, path.join(bundlePath, "Contents", "MacOS", exeName)];
+  }
+
+  if (platform === "linux") {
+    const roots = [
+      "/usr/lib/libreoffice/program",
+      "/usr/local/libreoffice/program",
+      "/usr/local/Microsoft Office",
+    ];
+    if (!exeName) {
+      return roots;
+    }
+    return roots.map((root) => path.join(root, exeName));
+  }
+
+  return [];
 }
 
-const OFFICE_DIR = getOfficePath();
+function getOfficePath(appName) {
+  const platform = os.platform();
+  const exeName = OFFICE_EXECUTABLE_NAMES[appName]?.[platform];
+  const candidates = [];
+  const seenPaths = new Set();
+  const warned = new Set();
+
+  const deriveExecutablePaths = (basePath) => {
+    const results = [];
+    if (!basePath) {
+      return results;
+    }
+    const trimmed = basePath.trim();
+    if (!trimmed) {
+      return results;
+    }
+    results.push(trimmed);
+
+    if (exeName) {
+      const lower = trimmed.toLowerCase();
+      const exeLower = exeName.toLowerCase();
+
+      if (platform === "darwin" && trimmed.endsWith(".app")) {
+        results.push(path.join(trimmed, "Contents", "MacOS", exeName));
+      } else if (!lower.endsWith(exeLower)) {
+        results.push(path.join(trimmed, exeName));
+      }
+    }
+
+    return results;
+  };
+
+  const pushCandidate = (candidatePath, source, fromConfig = false) => {
+    if (!candidatePath) {
+      return;
+    }
+    const normalized = candidatePath.trim();
+    if (!normalized) {
+      return;
+    }
+    const key = normalized.toLowerCase();
+    if (seenPaths.has(key)) {
+      return;
+    }
+    seenPaths.add(key);
+    candidates.push({ path: normalized, fromConfig, source });
+  };
+
+  const expandValue = (value, source, fromConfig = false) => {
+    if (!value) {
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => expandValue(item, source, fromConfig));
+      return;
+    }
+    if (typeof value === "object") {
+      if (value[platform]) {
+        expandValue(value[platform], `${source}.${platform}`, fromConfig);
+      }
+      if (value.default) {
+        expandValue(value.default, `${source}.default`, fromConfig);
+      }
+      return;
+    }
+    if (typeof value === "string") {
+      deriveExecutablePaths(value).forEach((candidate) =>
+        pushCandidate(candidate, source, fromConfig)
+      );
+    }
+  };
+
+  expandValue(getConfigValue(`office.${appName}`), `office.${appName}`, true);
+  expandValue(
+    getConfigValue(`office.${appName}.${platform}`),
+    `office.${appName}.${platform}`,
+    true
+  );
+
+  const legacyPlatformBase = getConfigValue(`officePaths.${platform}`);
+  if (legacyPlatformBase) {
+    expandValue(legacyPlatformBase, `officePaths.${platform}`, true);
+  }
+
+  const defaultCandidates = getDefaultOfficeCandidates(appName, platform);
+  defaultCandidates.forEach((candidate) =>
+    expandValue(candidate, "default", false)
+  );
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate.path)) {
+        return candidate.path;
+      }
+    } catch (error) {
+      logger.warn(`Error checking Office path ${candidate.path}:`, error);
+    }
+
+    if (candidate.fromConfig && !warned.has(candidate.path)) {
+      warned.add(candidate.path);
+      logger.warn(
+        `Configured ${appName} path not accessible: ${candidate.path}`
+      );
+    }
+  }
+
+  const fallback = candidates.find(
+    (candidate) => candidate.source === "default"
+  );
+
+  return fallback ? fallback.path : undefined;
+}
+
+fastify.get("/config", async (request, reply) => {
+  try {
+    const configPath = getConfigPath();
+    const config = getConfigValue();
+    const resolvedOffice = {
+      word: getOfficePath("word"),
+      excel: getOfficePath("excel"),
+      ppt: getOfficePath("ppt"),
+    };
+    const resolvedChromium = resolveChromiumExecutablePath();
+    const configDir = path.dirname(configPath);
+    const demoDir = path.join(configDir, "demo");
+    const resolvedDemo = {
+      baseDir: demoDir,
+      pdf: path.join(demoDir, "demo.pdf"),
+      word: path.join(demoDir, "demo.docx"),
+      excel: path.join(demoDir, "demo.xlsx"),
+      ppt: path.join(demoDir, "demo.pptx"),
+    };
+    const logFilePath = logFile?.path || logTransport?.resolvePath?.();
+
+    const payload = {
+      configPath,
+      configFileExists: fs.existsSync(configPath),
+      platform: os.platform(),
+      resolved: {
+        office: resolvedOffice,
+        officePath: resolvedOffice.word
+          ? path.dirname(resolvedOffice.word)
+          : undefined,
+        demo: resolvedDemo,
+        logFile: logFilePath,
+        chromiumExecutablePath: resolvedChromium,
+      },
+      config,
+    };
+
+    return { success: true, data: payload };
+  } catch (error) {
+    logger.error("Error loading configuration info:", error);
+    reply.code(500);
+    return { success: false, error: "Failed to load configuration info" };
+  }
+});
 
 function execCmd(cmdStr) {
   logger.info(`Executing: ${cmdStr}`);
@@ -117,8 +314,18 @@ function execCmd(cmdStr) {
 export async function printWord(filePath) {
   try {
     const resolvedPath = await resolveFilePath(filePath, "word");
-    const exePath = path.resolve(OFFICE_DIR, "WINWORD.EXE");
-    const cmdStr = `"${exePath}" /q /n /mFilePrintDefault /mFileCloseOrExit "${resolvedPath}"`;
+    const exePath = getOfficePath("word");
+
+    if (!exePath) {
+      throw new Error(
+        "Word executable not found. Configure office.word in config.json"
+      );
+    }
+
+    const executable = path.isAbsolute(exePath)
+      ? exePath
+      : path.resolve(exePath);
+    const cmdStr = `"${executable}" /q /n /mFilePrintDefault /mFileCloseOrExit "${resolvedPath}"`;
 
     await execCmd(cmdStr);
     logger.info("Word print job completed");
@@ -132,8 +339,18 @@ export async function printWord(filePath) {
 export async function printExcel(filePath) {
   try {
     const resolvedPath = await resolveFilePath(filePath, "excel");
-    const exePath = path.resolve(OFFICE_DIR, "EXCEL.EXE");
-    const cmdStr = `"${exePath}" /q /e /mFilePrintDefault /mFileCloseOrExit "${resolvedPath}"`;
+    const exePath = getOfficePath("excel");
+
+    if (!exePath) {
+      throw new Error(
+        "Excel executable not found. Configure office.excel in config.json"
+      );
+    }
+
+    const executable = path.isAbsolute(exePath)
+      ? exePath
+      : path.resolve(exePath);
+    const cmdStr = `"${executable}" /q /e /mFilePrintDefault /mFileCloseOrExit "${resolvedPath}"`;
 
     await execCmd(cmdStr);
     logger.info("Excel print job completed");
@@ -147,8 +364,18 @@ export async function printExcel(filePath) {
 export async function printPPT(filePath) {
   try {
     const resolvedPath = await resolveFilePath(filePath, "ppt");
-    const exePath = path.resolve(OFFICE_DIR, "POWERPNT.EXE");
-    const cmdStr = `"${exePath}" /P "${resolvedPath}"`;
+    const exePath = getOfficePath("ppt");
+
+    if (!exePath) {
+      throw new Error(
+        "PowerPoint executable not found. Configure office.ppt in config.json"
+      );
+    }
+
+    const executable = path.isAbsolute(exePath)
+      ? exePath
+      : path.resolve(exePath);
+    const cmdStr = `"${executable}" /P "${resolvedPath}"`;
 
     await execCmd(cmdStr);
     logger.info("PowerPoint print job completed");

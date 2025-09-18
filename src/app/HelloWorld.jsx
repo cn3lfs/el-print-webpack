@@ -4,13 +4,89 @@ import { message } from "antd";
 
 function HelloWorld() {
   const [messageApi, contextHolder] = message.useMessage();
+  const [configInfo, setConfigInfo] = React.useState(null);
+  const [configError, setConfigError] = React.useState(null);
+  const [configLoading, setConfigLoading] = React.useState(true);
 
-  const showSuccessTip = () => {
-    messageApi.open({
-      type: "success",
-      content: "正在打印中",
-    });
-  };
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const loadConfig = async () => {
+      try {
+        const response = await fetch("http://localhost:8000/config");
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = await response.json();
+        if (!cancelled) {
+          setConfigInfo(payload.data || payload);
+          setConfigLoading(false);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setConfigError(error.message);
+          setConfigLoading(false);
+        }
+      }
+    };
+
+    loadConfig();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const prettyConfig = React.useMemo(() => {
+    return JSON.stringify(configInfo?.config ?? {}, null, 2);
+  }, [configInfo]);
+
+  const demoPaths = configInfo?.resolved?.demo || null;
+
+  const showSuccessTip = React.useCallback(
+    (content = "正在打印...") => {
+      messageApi.open({
+        type: "success",
+        content,
+      });
+    },
+    [messageApi]
+  );
+
+  const ensureDemoReady = React.useCallback(() => {
+    if (configLoading) {
+      messageApi.open({
+        type: "info",
+        content: "配置加载中，请稍后再试",
+      });
+      return false;
+    }
+
+    if (configError) {
+      messageApi.open({
+        type: "error",
+        content: `配置加载失败：${configError}`,
+      });
+      return false;
+    }
+
+    if (
+      !demoPaths ||
+      !demoPaths.pdf ||
+      !demoPaths.word ||
+      !demoPaths.excel ||
+      !demoPaths.ppt
+    ) {
+      messageApi.open({
+        type: "error",
+        content: "未能解析演示文件目录，请检查配置",
+      });
+      return false;
+    }
+
+    return true;
+  }, [configLoading, configError, demoPaths, messageApi]);
 
   const htmlContent = `
     <html>
@@ -37,69 +113,146 @@ function HelloWorld() {
   }
 
   function printPdf() {
+    if (!ensureDemoReady()) {
+      return;
+    }
     showSuccessTip();
-    printUtils.printPdf(
-      "E:/reactprj/el-print-webpack/src/static/demo/demo.pdf"
-    );
+    printUtils.printPdf(demoPaths.pdf);
   }
 
   function printWord() {
+    if (!ensureDemoReady()) {
+      return;
+    }
     showSuccessTip();
-    printUtils.printWord(
-      "E:/reactprj/el-print-webpack/src/static/demo/demo.docx"
-    );
+    printUtils.printWord(demoPaths.word);
   }
 
   function printExcel() {
+    if (!ensureDemoReady()) {
+      return;
+    }
     showSuccessTip();
-    printUtils.printExcel(
-      "E:/reactprj/el-print-webpack/src/static/demo/demo.xlsx"
-    );
+    printUtils.printExcel(demoPaths.excel);
   }
 
   function printPpt() {
+    if (!ensureDemoReady()) {
+      return;
+    }
     showSuccessTip();
-    printUtils.printPPT(
-      "E:/reactprj/el-print-webpack/src/static/demo/demo.pptx"
-    );
+    printUtils.printPPT(demoPaths.ppt);
   }
+
+  const resolvedPaths = configInfo?.resolved ?? {};
+  const resolvedOffice = resolvedPaths.office ?? {};
 
   return (
     <div className="h-screen  h-full relative bg-gray-100">
       {contextHolder}
 
       <div className="relative p-10 bg-white shadow-lg">
-        {/* 应用默认配置信息 */}
+        {/* 应用配置信息 */}
         <div className="mb-8 p-4 bg-gray-50 rounded-lg border">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4">
-            应用默认配置
-          </h2>
+          <h2 className="text-xl font-semibold text-gray-800 mb-4">应用配置</h2>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="font-medium text-gray-600">端口:</span>
-              <span className="text-gray-800">8000</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-medium text-gray-600">
-                默认 Office 目录:
+            {configLoading ? (
+              <span className="text-gray-600">正在加载配置...</span>
+            ) : configError ? (
+              <span className="text-red-600 break-all">
+                读取配置失败：{configError}
               </span>
-              <span className="text-gray-800 break-all">
-                C:/Program Files/Microsoft Office/root/Office16/
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-medium text-gray-600">
-                默认 Chrome 路径:
-              </span>
-              <span className="text-gray-800 break-all">
-                C:/Program Files/Google/Chrome/Application/chrome.exe
-              </span>
-            </div>
+            ) : (
+              <>
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-600">
+                    配置文件路径:
+                  </span>
+                  <span className="text-gray-800 break-all text-right">
+                    {configInfo?.configPath || "默认路径 (config.json)"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-600">
+                    配置文件检测:
+                  </span>
+                  <span className="text-gray-800">
+                    {configInfo?.configFileExists
+                      ? "已加载"
+                      : "未找到，使用默认"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-600">运行平台:</span>
+                  <span className="text-gray-800">{configInfo?.platform}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-600">
+                    Word 可执行程序:
+                  </span>
+                  <span className="text-gray-800 break-all text-right">
+                    {resolvedOffice.word || "未检测"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-600">
+                    Excel 可执行程序:
+                  </span>
+                  <span className="text-gray-800 break-all text-right">
+                    {resolvedOffice.excel || "未检测"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-600">
+                    PowerPoint 可执行程序:
+                  </span>
+                  <span className="text-gray-800 break-all text-right">
+                    {resolvedOffice.ppt || "未检测"}
+                  </span>
+                </div>
+                {demoPaths?.baseDir ? (
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600">
+                      演示文件目录:
+                    </span>
+                    <span className="text-gray-800 break-all text-right">
+                      {demoPaths.baseDir}
+                    </span>
+                  </div>
+                ) : null}
+                {resolvedPaths.logFile ? (
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-600">
+                      main.log 路径:
+                    </span>
+                    <span className="text-gray-800 break-all text-right">
+                      {resolvedPaths.logFile}
+                    </span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between">
+                  <span className="font-medium text-gray-600">
+                    生效的 Chromium 路径:
+                  </span>
+                  <span className="text-gray-800 break-all text-right">
+                    {resolvedPaths.chromiumExecutablePath || "未检测"}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-medium text-gray-600 block mb-1">
+                    配置文件内容:
+                  </span>
+                  <pre className="bg-white border rounded p-2 text-xs text-gray-800 whitespace-pre-wrap break-words">
+                    {prettyConfig}
+                  </pre>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
         <h1 className="text-3xl font-bold text-gray-900 mb-8">
-          客户端打印测试:
+          客户端打印功能演示:
         </h1>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
