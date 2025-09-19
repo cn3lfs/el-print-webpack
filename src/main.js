@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, Tray, Menu, dialog } = require("electron");
 const {
   default: installExtension,
   REACT_DEVELOPER_TOOLS,
@@ -101,9 +101,20 @@ app.whenReady().then(async () => {
   createTray();
   startServer();
 
-  ipcMain.handle("print", (event, f) => {
-    // print(f)
+  ipcMain.handle("select-file", async (event, options = {}) => {
+    const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    const properties = Array.isArray(options?.properties)
+      ? Array.from(new Set([...options.properties, "openFile"]))
+      : ["openFile"];
+
+    const dialogOptions = {
+      ...options,
+      properties,
+    };
+
+    return dialog.showOpenDialog(browserWindow ?? undefined, dialogOptions);
   });
+
   ipcMain.handle("printJsx", (event, jsx, data) => {
     printJsx(jsx, data);
   });

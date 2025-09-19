@@ -4,19 +4,23 @@ const path = require("path");
 const logger = require("./utils/logger");
 const logTransport = logger.transports?.file;
 const logFile = logTransport?.getFile?.();
-const { getConfigValue, getConfigPath } = require("./config");
+const {
+  getConfigValue,
+  getConfigPath,
+  setConfigValue,
+} = require("./config");
 const { listPrinters } = require("./utils/printManager");
 const { createTempFilePath } = require("./utils/fileDownloader");
 const { resolveChromiumExecutablePath } = require("./utils/html2pdf");
 
 const {
+  getOfficePath,
   printHTML,
   printPdf,
   printWord,
   printExcel,
   printPPT,
   printJsx,
-  getOfficePath,
   printOfficeDocument,
 } = require("./print");
 
@@ -98,6 +102,31 @@ async function startServer() {
       return { success: false, error: "Failed to load configuration info" };
     }
   });
+  fastify.post("/setConfig", async (request, reply) => {
+    const { key, value } = request.body || {};
+
+    if (!key || typeof key !== "string" || !key.trim()) {
+      reply.code(400);
+      return { success: false, error: "key is required" };
+    }
+
+    const normalizedValue = typeof value === "string" ? value.trim() : value;
+
+    if (!normalizedValue || typeof normalizedValue !== "string") {
+      reply.code(400);
+      return { success: false, error: "value is required" };
+    }
+
+    try {
+      setConfigValue(key.trim(), normalizedValue);
+      return { success: true };
+    } catch (error) {
+      logger.error("Error updating configuration:", error);
+      reply.code(500);
+      return { success: false, error: error.message };
+    }
+  });
+
 
   // 打印HTML内容
   fastify.post("/print/html", async (request, reply) => {
@@ -288,3 +317,4 @@ module.exports = {
   printJsx,
   printOfficeDocument,
 };
+

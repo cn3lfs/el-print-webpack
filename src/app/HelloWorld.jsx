@@ -7,42 +7,95 @@ function HelloWorld() {
   const [configInfo, setConfigInfo] = React.useState(null);
   const [configError, setConfigError] = React.useState(null);
   const [configLoading, setConfigLoading] = React.useState(true);
+  const [updatingKey, setUpdatingKey] = React.useState(null);
+  const cancelRef = React.useRef(false);
+  const wordInputRef = React.useRef(null);
+  const excelInputRef = React.useRef(null);
+  const pptInputRef = React.useRef(null);
+  const chromiumInputRef = React.useRef(null);
+
+  const configKeyMap = React.useMemo(
+    () => ({
+      word: "office.word.win32",
+      excel: "office.excel.win32",
+      ppt: "office.ppt.win32",
+      chromium: "chromium.executablePath",
+    }),
+    []
+  );
+
+  const loadConfig = React.useCallback(async () => {
+    setConfigLoading(true);
+    setConfigError(null);
+
+    try {
+      const response = await fetch("http://localhost:8000/config");
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      if (!cancelRef.current) {
+        setConfigInfo(payload.data || payload);
+      }
+    } catch (error) {
+      if (!cancelRef.current) {
+        setConfigInfo(null);
+        setConfigError(error.message);
+      }
+    } finally {
+      if (!cancelRef.current) {
+        setConfigLoading(false);
+      }
+    }
+  }, []);
 
   React.useEffect(() => {
-    let cancelled = false;
-
-    const loadConfig = async () => {
-      try {
-        const response = await fetch("http://localhost:8000/config");
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const payload = await response.json();
-        if (!cancelled) {
-          setConfigInfo(payload.data || payload);
-          setConfigLoading(false);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setConfigError(error.message);
-          setConfigLoading(false);
-        }
-      }
-    };
-
+    cancelRef.current = false;
     loadConfig();
 
     return () => {
-      cancelled = true;
+      cancelRef.current = true;
     };
-  }, []);
+  }, [loadConfig]);
 
   const prettyConfig = React.useMemo(() => {
     return JSON.stringify(configInfo?.config ?? {}, null, 2);
   }, [configInfo]);
 
   const demoPaths = configInfo?.resolved?.demo || null;
+
+  const resolvedPaths = configInfo?.resolved ?? {};
+  const resolvedOffice = resolvedPaths.office ?? {};
+  const platform = configInfo?.platform || "win32";
+
+  const fileDialogOptions = React.useMemo(() => {
+    const isWindows = platform === "win32";
+    const isMac = platform === "darwin";
+    const extensions = isWindows ? ["exe"] : isMac ? ["app"] : ["*"];
+
+    const buildOptions = (title, defaultPath) => ({
+      properties: ["openFile"],
+      title,
+      filters: [
+        {
+          name: "Executable Files",
+          extensions,
+        },
+      ],
+      ...(defaultPath ? { defaultPath } : {}),
+    });
+
+    return {
+      word: buildOptions("Select Word executable", resolvedOffice.word),
+      excel: buildOptions("Select Excel executable", resolvedOffice.excel),
+      ppt: buildOptions("Select PowerPoint executable", resolvedOffice.ppt),
+      chromium: buildOptions(
+        "Select Chromium executable",
+        resolvedPaths.chromiumExecutablePath
+      ),
+    };
+  }, [platform, resolvedOffice, resolvedPaths]);
 
   const showSuccessTip = React.useCallback(
     (content = "正在打印...") => {
@@ -87,6 +140,134 @@ function HelloWorld() {
 
     return true;
   }, [configLoading, configError, demoPaths, messageApi]);
+
+  const updateConfigValue = React.useCallback(
+    async (key, filePath) => {
+      const configKey = configKeyMap[key];
+      if (!configKey) {
+        messageApi.open({
+          type: "error",
+          content: "未知的配置项",
+        });
+        return;
+      }
+
+      try {
+        setUpdatingKey(key);
+        const response = await fetch("http://localhost:8000/setConfig", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ key: configKey, value: filePath }),
+        });
+
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch (error) {
+          payload = null;
+        }
+
+        if (!response.ok || payload?.success === false) {
+          const errorMessage = payload?.error || `HTTP ${response.status}`;
+          throw new Error(errorMessage);
+        }
+
+        messageApi.open({
+          type: "success",
+          content: "配置已更新",
+        });
+
+        await loadConfig();
+      } catch (error) {
+        messageApi.open({
+          type: "error",
+          content: `更新配置失败：${error.message}`,
+        });
+      } finally {
+        setUpdatingKey(null);
+      }
+    },
+    [configKeyMap, loadConfig, messageApi]
+  );
+
+  const handleFileSelection = React.useCallback(
+    async (event, key) => {
+      const fileList = event.target.files;
+      const file = fileList && fileList[0];
+
+      if (!file) {
+        return;
+      }
+
+      let filePath = file.path || file.webkitRelativePath || file.name;
+
+      if (
+        typeof filePath === "string" &&
+        filePath.toLowerCase().startsWith("c:\\fakepath\\")
+      ) {
+        filePath = null;
+      }
+
+      if (!filePath) {
+        messageApi.open({
+          type: "error",
+          content: "Unable to read the selected file path.",
+        });
+        return;
+      }
+
+      event.target.value = "";
+      await updateConfigValue(key, filePath);
+    },
+    [messageApi, updateConfigValue]
+  );
+
+  const handleManualConfigClick = React.useCallback(
+    async (key) => {
+      const selectFile = window?.electronAPI?.selectFile;
+
+      if (typeof selectFile === "function") {
+        try {
+          const options = fileDialogOptions[key] || fileDialogOptions.chromium;
+          const result = await selectFile(options);
+          const selectedPath =
+            result && !result.canceled && Array.isArray(result.filePaths)
+              ? result.filePaths[0]
+              : null;
+
+          if (selectedPath) {
+            await updateConfigValue(key, selectedPath);
+            return;
+          }
+
+          if (result && result.canceled) {
+            return;
+          }
+        } catch (error) {
+          messageApi.open({
+            type: "error",
+            content: `Failed to select file: ${error.message}`,
+          });
+          return;
+        }
+      }
+
+      const refMap = {
+        word: wordInputRef,
+        excel: excelInputRef,
+        ppt: pptInputRef,
+        chromium: chromiumInputRef,
+      };
+      const targetInput = refMap[key]?.current;
+      if (targetInput) {
+        targetInput.value = "";
+        targetInput.click();
+      }
+    },
+    [fileDialogOptions, messageApi, updateConfigValue]
+  );
 
   const htmlContent = `
     <html>
@@ -167,12 +348,38 @@ function HelloWorld() {
     printUtils.printOfficeDocument(demoPaths.ppt);
   }
 
-  const resolvedPaths = configInfo?.resolved ?? {};
-  const resolvedOffice = resolvedPaths.office ?? {};
-
   return (
     <div className="h-screen  h-full relative bg-gray-100">
       {contextHolder}
+
+      <input
+        ref={wordInputRef}
+        type="file"
+        accept=".exe,.EXE,.app,.APP"
+        className="hidden"
+        onChange={(event) => handleFileSelection(event, "word")}
+      />
+      <input
+        ref={excelInputRef}
+        type="file"
+        accept=".exe,.EXE,.app,.APP"
+        className="hidden"
+        onChange={(event) => handleFileSelection(event, "excel")}
+      />
+      <input
+        ref={pptInputRef}
+        type="file"
+        accept=".exe,.EXE,.app,.APP"
+        className="hidden"
+        onChange={(event) => handleFileSelection(event, "ppt")}
+      />
+      <input
+        ref={chromiumInputRef}
+        type="file"
+        accept=".exe,.EXE,.app,.APP"
+        className="hidden"
+        onChange={(event) => handleFileSelection(event, "chromium")}
+      />
 
       <div className="relative p-10 bg-white shadow-lg">
         {/* 应用配置信息 */}
@@ -199,7 +406,13 @@ function HelloWorld() {
                   <span className="font-medium text-gray-600">
                     配置文件检测:
                   </span>
-                  <span className="text-gray-800">
+                  <span
+                    className={
+                      configInfo?.configFileExists
+                        ? "text-gray-800"
+                        : "text-red-800"
+                    }
+                  >
                     {configInfo?.configFileExists
                       ? "已加载"
                       : "未找到，使用默认"}
@@ -209,29 +422,77 @@ function HelloWorld() {
                   <span className="font-medium text-gray-600">运行平台:</span>
                   <span className="text-gray-800">{configInfo?.platform}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <span className="font-medium text-gray-600">
                     Word 可执行程序:
                   </span>
-                  <span className="text-gray-800 break-all text-right">
-                    {resolvedOffice.word || "未检测"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-800 break-all text-right">
+                      {resolvedOffice.word || "未检测"}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-2 py-1 text-xs text-blue-600 border border-blue-400 rounded hover:bg-blue-50 disabled:opacity-50"
+                      onClick={() => handleManualConfigClick("word")}
+                      disabled={updatingKey === "word"}
+                    >
+                      {updatingKey === "word" ? "更新中..." : "手动设置"}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <span className="font-medium text-gray-600">
                     Excel 可执行程序:
                   </span>
-                  <span className="text-gray-800 break-all text-right">
-                    {resolvedOffice.excel || "未检测"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-800 break-all text-right">
+                      {resolvedOffice.excel || "未检测"}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-2 py-1 text-xs text-blue-600 border border-blue-400 rounded hover:bg-blue-50 disabled:opacity-50"
+                      onClick={() => handleManualConfigClick("excel")}
+                      disabled={updatingKey === "excel"}
+                    >
+                      {updatingKey === "excel" ? "更新中..." : "手动设置"}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <span className="font-medium text-gray-600">
                     PowerPoint 可执行程序:
                   </span>
-                  <span className="text-gray-800 break-all text-right">
-                    {resolvedOffice.ppt || "未检测"}
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-800 break-all text-right">
+                      {resolvedOffice.ppt || "未检测"}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-2 py-1 text-xs text-blue-600 border border-blue-400 rounded hover:bg-blue-50 disabled:opacity-50"
+                      onClick={() => handleManualConfigClick("ppt")}
+                      disabled={updatingKey === "ppt"}
+                    >
+                      {updatingKey === "ppt" ? "更新中..." : "手动设置"}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-medium text-gray-600">
+                    生效的 Chromium 路径:
                   </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-800 break-all text-right">
+                      {resolvedPaths.chromiumExecutablePath || "未检测"}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-2 py-1 text-xs text-blue-600 border border-blue-400 rounded hover:bg-blue-50 disabled:opacity-50"
+                      onClick={() => handleManualConfigClick("chromium")}
+                      disabled={updatingKey === "chromium"}
+                    >
+                      {updatingKey === "chromium" ? "更新中..." : "手动设置"}
+                    </button>
+                  </div>
                 </div>
                 {demoPaths?.baseDir ? (
                   <div className="flex justify-between">
@@ -253,14 +514,6 @@ function HelloWorld() {
                     </span>
                   </div>
                 ) : null}
-                <div className="flex justify-between">
-                  <span className="font-medium text-gray-600">
-                    生效的 Chromium 路径:
-                  </span>
-                  <span className="text-gray-800 break-all text-right">
-                    {resolvedPaths.chromiumExecutablePath || "未检测"}
-                  </span>
-                </div>
                 <div>
                   <span className="font-medium text-gray-600 block mb-1">
                     配置文件内容:

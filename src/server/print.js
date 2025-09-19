@@ -363,13 +363,13 @@ async function printJsx(jsx, initialData) {
 }
 
 module.exports = {
+  getOfficePath,
+  resolveFilePath,
   printHTML,
   printPdf,
   printWord,
   printExcel,
   printPPT,
   printJsx,
-  getOfficePath,
-  resolveFilePath,
   printOfficeDocument,
 };
