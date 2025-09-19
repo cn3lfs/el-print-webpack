@@ -4,11 +4,7 @@ const path = require("path");
 const logger = require("./utils/logger");
 const logTransport = logger.transports?.file;
 const logFile = logTransport?.getFile?.();
-const {
-  getConfigValue,
-  getConfigPath,
-  setConfigValue,
-} = require("./config");
+const { getConfigValue, getConfigPath, setConfigValue } = require("./config");
 const { listPrinters } = require("./utils/printManager");
 const { createTempFilePath } = require("./utils/fileDownloader");
 const { resolveChromiumExecutablePath } = require("./utils/html2pdf");
@@ -35,7 +31,7 @@ async function startServer() {
   await fastify.register(require("@fastify/cors"), {
     origin: true, // 允许所有来源
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   });
 
   // 注册multipart插件用于文件上传
@@ -126,7 +122,6 @@ async function startServer() {
       return { success: false, error: error.message };
     }
   });
-
 
   // 打印HTML内容
   fastify.post("/print/html", async (request, reply) => {
@@ -317,4 +312,3 @@ module.exports = {
   printJsx,
   printOfficeDocument,
 };
-

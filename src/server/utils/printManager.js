@@ -321,14 +321,6 @@ export async function printOfficeDocument(filePath, options = {}) {
     parameters.PageRange = options.pageRange;
   }
 
-  if (options.convertToPdf === true) {
-    parameters.ConvertToPdf = true;
-  }
-
-  if (options.outputFolder) {
-    parameters.OutputFolder = ensureAbsolute(options.outputFolder);
-  }
-
   try {
     const { stdout = "", stderr = "" } = await runPrintScript(parameters);
 
