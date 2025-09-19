@@ -143,6 +143,29 @@ function HelloWorld() {
     showSuccessTip();
     printUtils.printPPT(demoPaths.ppt);
   }
+  function printWordPowershell() {
+    if (!ensureDemoReady()) {
+      return;
+    }
+    showSuccessTip();
+    printUtils.printOfficeDocument(demoPaths.word);
+  }
+
+  function printExcelPowershell() {
+    if (!ensureDemoReady()) {
+      return;
+    }
+    showSuccessTip();
+    printUtils.printOfficeDocument(demoPaths.excel);
+  }
+
+  function printPptPowershell() {
+    if (!ensureDemoReady()) {
+      return;
+    }
+    showSuccessTip();
+    printUtils.printOfficeDocument(demoPaths.ppt);
+  }
 
   const resolvedPaths = configInfo?.resolved ?? {};
   const resolvedOffice = resolvedPaths.office ?? {};
@@ -296,6 +319,27 @@ function HelloWorld() {
             onClick={printPpt}
           >
             Print PPT
+          </button>
+
+          <button
+            className="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded transition duration-300"
+            onClick={printWordPowershell}
+          >
+            Print Word Powershell
+          </button>
+
+          <button
+            className="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded transition duration-300"
+            onClick={printExcelPowershell}
+          >
+            Print Excel Powershell
+          </button>
+
+          <button
+            className="bg-pink-500 hover:bg-pink-700 text-white font-bold py-2 px-4 rounded transition duration-300"
+            onClick={printPptPowershell}
+          >
+            Print PPT Powershell
           </button>
         </div>
       </div>

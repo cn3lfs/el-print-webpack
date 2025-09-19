@@ -40,6 +40,13 @@ export async function printPPT(f) {
     console.error(error);
   }
 }
+export async function printOfficeDocument(f) {
+  try {
+    window.electronAPI.printOfficeDocument(f);
+  } catch (error) {
+    console.error(error);
+  }
+}
 export async function printJsx(jsx, data) {
   try {
     window.electronAPI.printJsx(jsx, data);

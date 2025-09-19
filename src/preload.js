@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   printWord: (f) => ipcRenderer.invoke("printWord", f),
   printExcel: (f) => ipcRenderer.invoke("printExcel", f),
   printPPT: (f) => ipcRenderer.invoke("printPPT", f),
+  printOfficeDocument: (f) => ipcRenderer.invoke("printOfficeDocument", f),
   printJsx: (jsx, data) => ipcRenderer.invoke("printJsx", jsx, data),
   // we can also expose variables, not just functions
 });

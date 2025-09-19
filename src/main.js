@@ -13,6 +13,7 @@ const {
   printPPT,
   printJsx,
   startServer,
+  printOfficeDocument,
 } = require("./server");
 
 app.commandLine.appendSwitch("ignore-certificate-errors");
@@ -120,6 +121,9 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("printPPT", (event, f) => {
     printPPT(f);
+  });
+  ipcMain.handle("printOfficeDocument", (event, f) => {
+    printOfficeDocument(f);
   });
 
   // On OS X it's common to re-create a window in the app when the

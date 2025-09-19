@@ -1,4 +1,5 @@
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
+import fs from "fs";
 import os from "os";
 import path from "path";
 import {
@@ -21,6 +22,11 @@ function ensureAbsolute(p) {
 }
 function isPosix() {
   return ["linux", "darwin", "freebsd"].includes(os.platform());
+}
+
+function isOfficeDocument(filePath) {
+  const ext = path.extname(filePath || "").toLowerCase();
+  return SUPPORTED_OFFICE_EXTENSIONS.has(ext);
 }
 
 // ---------------------------
@@ -114,6 +120,21 @@ const sumatraPdfPath = path.resolve(
   "./static/lib/SumatraPDF-3.4.6-32.exe"
 );
 
+const POWERSHELL_COMMAND = process.env.POWERSHELL_PATH || "powershell.exe";
+const printDocumentScriptPath = path.resolve(
+  basePath,
+  "./static/lib/Print-Document.ps1"
+);
+
+const SUPPORTED_OFFICE_EXTENSIONS = new Set([
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx",
+]);
+
 function mapWindowsOptions(options) {
   const {
     printer,
@@ -159,6 +180,222 @@ function mapCupsOptions(options) {
   if (options.orientation === "landscape" || options.landscape)
     cupsOptions.push(`-o landscape`);
   return cupsOptions;
+}
+
+function toPowerShellValue(value) {
+  if (typeof value === "boolean") {
+    return value ? "True" : "False";
+  }
+  return String(value);
+}
+
+function buildPrintScriptArgs(parameters) {
+  if (!printDocumentScriptPath || !fs.existsSync(printDocumentScriptPath)) {
+    throw new Error(
+      "Print-Document.ps1 not found at " + printDocumentScriptPath
+    );
+  }
+
+  const args = [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    printDocumentScriptPath,
+  ];
+
+  for (const [key, value] of Object.entries(parameters)) {
+    if (value === undefined || value === null) continue;
+    args.push("-" + key);
+    args.push(toPowerShellValue(value));
+  }
+
+  return args;
+}
+
+function runPrintScript(parameters) {
+  return new Promise((resolve, reject) => {
+    const args = buildPrintScriptArgs(parameters);
+    const child = spawn(POWERSHELL_COMMAND, args, {
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "pipe"],
+      encoding: "utf8",
+    });
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    child.on("error", (error) => {
+      error.stdout = stdout;
+      error.stderr = stderr;
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ code, stdout, stderr });
+      } else {
+        const message =
+          stderr.trim() ||
+          stdout.trim() ||
+          "PowerShell exited with code " + code;
+        const error = new Error(message);
+        error.code = code;
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+      }
+    });
+  });
+}
+
+export async function printOfficeDocument(filePath, options = {}) {
+  logger.info("start printing: ");
+  if (os.platform() !== "win32") {
+    const msg = "Office document printing is only supported on Windows.";
+    logger.error(msg);
+
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+
+  const absPath = ensureAbsolute(filePath);
+
+  if (!isOfficeDocument(absPath)) {
+    const msg =
+      "Unsupported file type for office printing: " +
+      path.extname(absPath || filePath);
+    logger.error(msg);
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+
+  if (!fs.existsSync(absPath)) {
+    const msg = "File not found: " + absPath;
+    logger.error(msg);
+    return { success: false, error: msg };
+  }
+
+  if (!printDocumentScriptPath || !fs.existsSync(printDocumentScriptPath)) {
+    const msg =
+      "Print-Document.ps1 not found at " + String(printDocumentScriptPath);
+    logger.error(msg);
+    return {
+      success: false,
+      error: msg,
+    };
+  }
+
+  const parameters = {
+    FilePath: absPath,
+  };
+
+  const printerName = options.printer || options.printerName;
+  if (printerName) {
+    parameters.PrinterName = printerName;
+  }
+
+  if (options.copies != null) {
+    const copies = Number(options.copies);
+    if (!Number.isNaN(copies)) {
+      parameters.Copies = copies;
+    }
+  }
+
+  if (options.pageRange) {
+    parameters.PageRange = options.pageRange;
+  }
+
+  if (options.convertToPdf === true) {
+    parameters.ConvertToPdf = true;
+  }
+
+  if (options.outputFolder) {
+    parameters.OutputFolder = ensureAbsolute(options.outputFolder);
+  }
+
+  try {
+    const { stdout = "", stderr = "" } = await runPrintScript(parameters);
+
+    stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => logger.info("[Print-Document] " + line));
+
+    stderr
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .forEach((line) => logger.warn("[Print-Document] " + line));
+
+    logger.info(
+      "SUCCESS: " +
+        absPath +
+        " -> " +
+        (printerName || "(default)") +
+        " [Office]"
+    );
+
+    return { success: true };
+  } catch (error) {
+    logger.error(
+      "FAIL: " +
+        absPath +
+        " -> " +
+        (printerName || "(default)") +
+        " [Office] | " +
+        error.message
+    );
+    return {
+      success: false,
+      error: error.message,
+      stdout: error.stdout,
+      stderr: error.stderr,
+    };
+  }
+}
+
+export async function printOfficeDocuments(files, options = {}) {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error("files must be array");
+  }
+
+  const total = files.length;
+  const results = [];
+  let completed = 0;
+
+  for (const file of files) {
+    const result = await printOfficeDocument(file, options);
+    completed += 1;
+    console.log(
+      "Office progress: " +
+        completed +
+        "/" +
+        total +
+        " (" +
+        Math.round((completed / total) * 100) +
+        "%)"
+    );
+    results.push(result);
+  }
+
+  return results;
 }
 
 export async function printSinglePDF(
